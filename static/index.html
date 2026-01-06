@@ -1,44 +1,79 @@
-<html>
+<!DOCTYPE html>
+<html lang="fr">
 <head>
-    <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
-    <link rel="stylesheet" href="/main.css"/>
+  <meta charset="UTF-8">
+  <title>Partage d'écran WebRTC</title>
+  <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+  <link rel="stylesheet" href="/main.css">
 </head>
 <body>
-    <div class="container">
-        <!-- Video row -->
-        <div class="videocontainer left">
-            <video id="localVideo" autoplay muted playsinline></video>
+  <div class="container">
+    <h1>Partage d'écran</h1>
+    <p id="roleInfo">Initialisation en cours...</p>
+
+    <div class="main-layout">
+      <!-- Colonne gauche : écran local (caché en CSS) -->
+      <div class="col">
+        <div class="video-card video-card-local">
+          <h2>Mon écran</h2>
+          <small>
+            Si vous êtes la personne qui partage, vous verrez ici un aperçu de l’écran sélectionné.
+          </small>
+          <video id="localVideo" autoplay muted playsinline></video>
         </div>
-        <div class="videocontainer right">
-            <video id="remoteVideo" autoplay playsinline></video>
+      </div>
+
+      <!-- Colonne droite : écran distant + infos -->
+      <div class="col">
+        <div class="video-card">
+          <h2>Écran distant</h2>
+          <small>
+            L’écran de votre correspondant apparaîtra ici.
+          </small>
+          <video id="remoteVideo" autoplay playsinline></video>
+          <p style="margin-top: 8px; text-align: right;">
+            <button id="fullscreenBtn" class="secondary-btn">
+              Plein écran
+            </button>
+          </p>
         </div>
 
-        <!-- Controls row -->
-        <div class="left">
-            <p>Client ID: <span id="clientId"></span></p>
-            <p>
-                <button id="audioBtn">mute audio</button>
-                <button id="videoBtn">mute video</button>
-                <button id="shareBtn">share screen</button>
-            </p>
-            <p class="bandwidth-row">
-                <label>Bandwidth:</label>
-                <select id="bandwidth">
-                    <option value="unlimited" selected>unlimited</option>
-                    <option value="2000">2000</option>
-                    <option value="1000">1000</option>
-                    <option value="500">500</option>
-                    <option value="250">250</option>
-                    <option value="125">125</option>
-                </select>kbps
-            </p>
+        <div class="info-card">
+          <p class="id-row">
+            <span class="id-label">Mon identifiant :</span>
+            <span id="clientId">–</span>
+          </p>
+          <p id="linkInfo"></p>
+
+          <p style="margin-top: 10px;">
+            <button id="shareBtn" class="primary-btn">
+              Partager mon écran
+            </button>
+            <button id="hangupButton" class="secondary-btn" disabled>
+              Arrêter la connexion
+            </button>
+          </p>
+
+          <p class="bandwidth-row">
+            Limite de débit vidéo :
+            <select id="bandwidth">
+              <option value="unlimited" selected>illimité</option>
+              <option value="2000">2000 kbps</option>
+              <option value="1000">1000 kbps</option>
+              <option value="500">500 kbps</option>
+              <option value="250">250 kbps</option>
+              <option value="125">125 kbps</option>
+            </select>
+          </p>
+
+          <p id="connectionState" style="display:none;">
+            Connexion établie avec le correspondant.
+          </p>
         </div>
-        <div class="right">
-            <p>Peer ID: <span id="peerId"></span></p>
-            <p>
-                <button id="hangupButton" disabled>hangup</button>
-            </p>
-        </div>
+      </div>
     </div>
-    <script src="/main.js"></script>
+  </div>
+
+  <script src="/main.js"></script>
 </body>
+</html>
