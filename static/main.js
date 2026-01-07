@@ -1,72 +1,52 @@
-// === Rôles et métadonnées ===
-let offerCallback = null;
-const remoteMetadata = new Map();
-const localMetadata = {};
-
-const useTrickleIce = true;
+// === Rôles simples ===
 const initialHash = window.location.hash.substr(1);
-// La machine qui ouvre un lien AVEC #id est celle qui partage
-const isSender = initialHash.length > 0;
+const isSender = initialHash.length > 0;  // avec #id => partageur
 
-let screenShare;
-let placeholderTrack;
 const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
 const peers = new Map();
-let clientId;
 let ws;
+let clientId;
 let localStream;
+let screenShare = null;
+let placeholderTrack = null;
 let iceServers = null;
 
 // DOM
 const shareBtn = document.getElementById('shareBtn');
 const hangupBtn = document.getElementById('hangupButton');
-const bandwidthSelector = document.querySelector('select#bandwidth');
+const bandwidthSelector = document.getElementById('bandwidth');
 const connectionState = document.getElementById('connectionState');
 const roleInfo = document.getElementById('roleInfo');
 const linkInfo = document.getElementById('linkInfo');
 const clientIdSpan = document.getElementById('clientId');
-const peerIdSpan = document.getElementById('peerId'); // pas obligatoire
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
 
 // Texte de rôle
 if (roleInfo) {
-  if (isSender) {
-    roleInfo.textContent =
-      "Vous avez ouvert un lien reçu : c’est votre écran qui sera partagé.";
-  } else {
-    roleInfo.textContent =
-      "Vous êtes l’initiateur : envoyez le lien affiché ci-dessous à la personne qui doit partager son écran.";
-  }
+  roleInfo.textContent = isSender
+    ? "Vous avez ouvert un lien reçu : c’est votre écran qui sera partagé."
+    : "Vous êtes l’initiateur : envoyez le lien affiché ci-dessous à la personne qui doit partager son écran.";
 }
 
-// L’initiateur (sans hash) ne partage pas
+// Initiateur ne partage pas
 if (!isSender && shareBtn) {
   shareBtn.style.display = 'none';
 }
 
-// Plein écran sur la vidéo distante
+// Plein écran
 if (fullscreenBtn && remoteVideo) {
   fullscreenBtn.addEventListener('click', () => {
     if (!document.fullscreenElement) {
-      remoteVideo.requestFullscreen().catch(err => {
-        console.warn('Fullscreen failed', err);
-      });
+      remoteVideo.requestFullscreen().catch(err => console.warn('Fullscreen failed', err));
     } else {
       document.exitFullscreen().catch(() => {});
     }
   });
 }
 
-// === Placeholder vidéo ===
-function setLocalMetadataLabel(label) {
-  Object.keys(localMetadata).forEach(k => delete localMetadata[k]);
-  if (localStream) {
-    localMetadata[localStream.id] = label;
-  }
-}
-
+// === Placeholder ===
 function ensurePlaceholderTrack() {
   if (!placeholderTrack) {
     const canvas = document.createElement('canvas');
@@ -84,6 +64,16 @@ function ensurePlaceholderTrack() {
   return placeholderTrack;
 }
 
+// === Flux local initial ===
+async function getUserMediaPlaceholder() {
+  const track = ensurePlaceholderTrack();
+  const stream = new MediaStream([track]);
+  localStream = stream;
+  if (localVideo) localVideo.srcObject = stream;
+  return stream;
+}
+
+// === Remplacement du track vidéo ===
 async function replaceVideoTrack(withTrack) {
   const trackToUse = withTrack || ensurePlaceholderTrack();
   const promises = [];
@@ -97,9 +87,7 @@ async function replaceVideoTrack(withTrack) {
         return;
       }
     }
-    promises.push(
-      sender.replaceTrack(trackToUse).catch(e => console.error('replaceTrack failed', e))
-    );
+    promises.push(sender.replaceTrack(trackToUse).catch(e => console.error('replaceTrack failed', e)));
   });
   await Promise.all(promises);
 }
@@ -113,7 +101,6 @@ if (shareBtn) {
       screenShare = null;
       const placeholder = ensurePlaceholderTrack();
       localStream = new MediaStream([placeholder]);
-      setLocalMetadataLabel('placeholder');
       if (localVideo) localVideo.srcObject = localStream;
       replaceVideoTrack(null);
       shareBtn.classList.remove('sharing');
@@ -121,21 +108,18 @@ if (shareBtn) {
       return;
     }
 
-    // Démarrer partage d’écran
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
       const track = stream.getVideoTracks()[0];
       localStream = new MediaStream([track]);
-      setLocalMetadataLabel('screen-share');
-      await replaceVideoTrack(track);
       if (localVideo) localVideo.srcObject = stream;
+      await replaceVideoTrack(track);
 
       track.addEventListener('ended', () => {
         console.log('Screensharing ended via browser UI');
         screenShare = null;
         const placeholder = ensurePlaceholderTrack();
         localStream = new MediaStream([placeholder]);
-        setLocalMetadataLabel('placeholder');
         if (localVideo) localVideo.srcObject = localStream;
         replaceVideoTrack(null);
         shareBtn.classList.remove('sharing');
@@ -154,75 +138,62 @@ if (shareBtn) {
 // === Bouton hangup ===
 hangupBtn.addEventListener('click', () => {
   hangupBtn.disabled = true;
-  peers.forEach((pc, id) => {
-    hangup(id);
-  });
+  peers.forEach((pc, id) => hangup(id));
 });
 
-// === Bande passante ===
-bandwidthSelector.onchange = () => {
+// === Limite de débit ===
+bandwidthSelector.addEventListener('change', () => {
   bandwidthSelector.disabled = true;
-  const bandwidth = bandwidthSelector.options[bandwidthSelector.selectedIndex].value;
-  if (!('RTCRtpSender' in window && 'setParameters' in window.RTCRtpSender.prototype)) {
-    return;
-  }
-  peers.forEach((pc) => {
+  const val = bandwidthSelector.value;
+  if (!('RTCRtpSender' in window && 'setParameters' in RTCRtpSender.prototype)) return;
+
+  peers.forEach(pc => {
     const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
     if (!sender) return;
-    const parameters = sender.getParameters();
-    if (!parameters.encodings) parameters.encodings = [{}];
+    const params = sender.getParameters();
+    if (!params.encodings) params.encodings = [{}];
 
-    if (bandwidth === 'unlimited') {
-      delete parameters.encodings[0].maxBitrate;
+    if (val === 'unlimited') {
+      delete params.encodings[0].maxBitrate;
     } else {
-      parameters.encodings[0].maxBitrate = bandwidth * 1000;
+      params.encodings[0].maxBitrate = parseInt(val, 10) * 1000;
     }
-    sender.setParameters(parameters)
-      .then(() => {
-        bandwidthSelector.disabled = false;
-      })
-      .catch(e => console.error(e));
+    sender.setParameters(params)
+      .catch(e => console.error(e))
+      .finally(() => { bandwidthSelector.disabled = false; });
   });
-};
-
-// === getUserMedia local (placeholder) ===
-async function getUserMedia() {
-  const track = ensurePlaceholderTrack();
-  const stream = new MediaStream([track]);
-  localStream = stream;
-  if (localVideo) localVideo.srcObject = stream;
-  setLocalMetadataLabel('placeholder');
-  return stream;
-}
+});
 
 // === WebSocket / signalisation ===
 function connect() {
   return new Promise((resolve, reject) => {
     ws = new WebSocket(protocol + '://' + window.location.host);
+
     ws.addEventListener('open', () => {
       console.log('websocket opened');
     });
+
     ws.addEventListener('error', (e) => {
-      console.log('websocket error, is the server running?', e);
+      console.log('websocket error', e);
       reject(e);
     });
-    ws.addEventListener('close', (e) => {
-      console.log('websocket closed', e);
+
+    ws.addEventListener('close', () => {
+      console.log('websocket closed');
     });
+
     ws.addEventListener('message', async (e) => {
       let data;
       try {
         data = JSON.parse(e.data);
-      } catch (err) {
-        console.log('Received invalid JSON', err, e.data);
+      } catch {
         return;
       }
-      console.log('WS message type:', data.type, 'from', data.id);
 
       switch (data.type) {
         case 'hello':
           clientId = data.id;
-          if (clientIdSpan) clientIdSpan.innerText = clientId;
+          if (clientIdSpan) clientIdSpan.textContent = clientId;
           if (!isSender && linkInfo) {
             const url = window.location.origin + '/#' + clientId;
             linkInfo.textContent =
@@ -233,66 +204,20 @@ function connect() {
           iceServers = data.iceServers;
           resolve();
           break;
+        case 'offer':
+          await handleOffer(data);
+          break;
+        case 'answer':
+          await handleAnswer(data);
+          break;
+        case 'candidate':
+          await handleCandidate(data);
+          break;
         case 'bye':
           if (peers.has(data.id)) {
             peers.get(data.id).close();
             peers.delete(data.id);
-            remoteMetadata.delete(data.id);
           }
-          break;
-        case 'offer':
-          if (!peers.has(data.id)) {
-            console.log('Incoming call from', data.id);
-            if (peerIdSpan) peerIdSpan.innerText = data.id;
-            if (peers.size >= 1) {
-              ws.send(JSON.stringify({ type: 'bye', id: data.id }));
-              return;
-            }
-            remoteMetadata.set(data.id, data.metadata);
-            const pc = createPeerConnection(data.id);
-            if (localStream) {
-              localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-            }
-            await pc.setRemoteDescription({
-              type: data.type,
-              sdp: data.sdp
-            });
-
-            if (!offerCallback) {
-              const answer = await pc.createAnswer();
-              await pc.setLocalDescription(answer);
-              if (useTrickleIce) {
-                ws.send(JSON.stringify({
-                  type: 'answer',
-                  sdp: answer.sdp,
-                  id: data.id,
-                  metadata: localMetadata,
-                }));
-              }
-            } else {
-              offerCallback(data.id);
-            }
-            hangupBtn.disabled = false;
-          }
-          break;
-        case 'answer':
-          if (peers.has(data.id)) {
-            remoteMetadata.set(data.id, data.metadata);
-            const pc = peers.get(data.id);
-            await pc.setRemoteDescription({
-              type: data.type,
-              sdp: data.sdp
-            });
-          }
-          break;
-        case 'candidate':
-          if (peers.has(data.id)) {
-            const pc = peers.get(data.id);
-            await pc.addIceCandidate(data.candidate);
-          }
-          break;
-        default:
-          console.log('Unhandled', data);
           break;
       }
     });
@@ -301,44 +226,25 @@ function connect() {
 
 function createPeerConnection(id) {
   const pc = new RTCPeerConnection({ iceServers });
-  let signalledCandidates = false;
+  peers.set(id, pc);
 
   pc.addEventListener('icecandidate', (e) => {
-    const { candidate } = e;
-    if (useTrickleIce) {
+    if (e.candidate) {
       ws.send(JSON.stringify({
         type: 'candidate',
-        candidate,
+        candidate: e.candidate,
         id,
       }));
-    } else if (!signalledCandidates) {
-      if (!candidate || candidate.type === 'relay') {
-        signalledCandidates = true;
-        ws.send(JSON.stringify({
-          type: pc.localDescription.type,
-          sdp: pc.localDescription.sdp,
-          id,
-          metadata: localMetadata,
-        }));
-      }
     }
   });
 
   pc.addEventListener('track', (e) => {
     if (!remoteVideo) return;
     const remoteStream = e.streams[0];
-    console.log(id, 'received remote track(s)', remoteStream.getTracks().map(t => ({
-      kind: t.kind,
-      readyState: t.readyState
-    })));
     remoteVideo.muted = true;
     remoteVideo.srcObject = remoteStream;
-    if (typeof remoteVideo.play === 'function') {
-      remoteVideo.play().catch(err => console.warn('remoteVideo.play() failed', err));
-    }
-    if (connectionState) {
-      connectionState.style.display = 'block';
-    }
+    remoteVideo.play().catch(err => console.warn('remoteVideo.play() failed', err));
+    if (connectionState) connectionState.style.display = 'block';
   });
 
   pc.addEventListener('connectionstatechange', () => {
@@ -347,61 +253,60 @@ function createPeerConnection(id) {
       hangupBtn.disabled = false;
       if (screenShare) {
         const track = screenShare.getVideoTracks()[0];
-        if (track) {
-          replaceVideoTrack(track).catch(e =>
-            console.error('Failed to sync screenShare track', e)
-          );
-        }
+        if (track) replaceVideoTrack(track).catch(console.error);
       }
     }
   });
 
-  peers.set(id, pc);
   return pc;
 }
 
-async function call(id) {
-  if (peers.has(id)) {
-    console.log('Already in a call with', id);
-    return;
+async function handleOffer(data) {
+  if (peers.has(data.id)) return;
+  const pc = createPeerConnection(data.id);
+  if (localStream) {
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
   }
+  await pc.setRemoteDescription({ type: 'offer', sdp: data.sdp });
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  ws.send(JSON.stringify({
+    type: 'answer',
+    sdp: answer.sdp,
+    id: data.id,
+  }));
+}
+
+async function handleAnswer(data) {
+  const pc = peers.get(data.id);
+  if (!pc) return;
+  await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
+}
+
+async function handleCandidate(data) {
+  const pc = peers.get(data.id);
+  if (!pc) return;
+  await pc.addIceCandidate(data.candidate);
+}
+
+async function call(id) {
+  if (peers.has(id)) return;
   const pc = createPeerConnection(id);
   if (localStream) {
     localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
   }
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
-  if (useTrickleIce) {
-    ws.send(JSON.stringify({
-      type: 'offer',
-      sdp: offer.sdp,
-      id,
-      metadata: localMetadata,
-    }));
-  }
-  hangupBtn.disabled = false;
-  if (peerIdSpan) peerIdSpan.innerText = id;
-}
-
-async function answer(id) {
-  if (!peers.has(id)) return;
-  const pc = peers.get(id);
-  const answer = await pc.createAnswer();
-  await pc.setLocalDescription(answer);
-  if (useTrickleIce) {
-    ws.send(JSON.stringify({
-      type: 'answer',
-      sdp: answer.sdp,
-      id,
-      metadata: localMetadata,
-    }));
-  }
-  hangupBtn.disabled = false;
+  ws.send(JSON.stringify({
+    type: 'offer',
+    sdp: offer.sdp,
+    id,
+  }));
 }
 
 function hangup(id) {
-  if (!peers.has(id)) return;
   const pc = peers.get(id);
+  if (!pc) return;
   pc.close();
   peers.delete(id);
   ws.send(JSON.stringify({ type: 'bye', id }));
@@ -409,17 +314,14 @@ function hangup(id) {
 
 window.addEventListener('beforeunload', () => {
   if (ws && ws.readyState === WebSocket.OPEN) {
-    peers.forEach((pc, id) => {
-      hangup(id);
-    });
+    peers.forEach((pc, id) => hangup(id));
   }
 });
 
 // === Initialisation ===
-getUserMedia()
+getUserMediaPlaceholder()
   .then(() => connect())
   .then(() => {
-    // Si je suis la personne qui a reçu un lien avec #id, j’appelle l’initiateur
     if (isSender && initialHash.length) {
       call(initialHash);
     }

@@ -12,13 +12,11 @@
     <p id="roleInfo">Initialisation en cours...</p>
 
     <div class="main-layout">
-      <!-- Colonne gauche : écran local (caché en CSS) -->
+      <!-- Colonne gauche : écran local (caché via CSS) -->
       <div class="col">
         <div class="video-card video-card-local">
           <h2>Mon écran</h2>
-          <small>
-            Si vous êtes la personne qui partage, vous verrez ici un aperçu de l’écran sélectionné.
-          </small>
+          <small>Prévisualisation locale du partage.</small>
           <video id="localVideo" autoplay muted playsinline></video>
         </div>
       </div>
@@ -27,14 +25,10 @@
       <div class="col">
         <div class="video-card">
           <h2>Écran distant</h2>
-          <small>
-            L’écran de votre correspondant apparaîtra ici.
-          </small>
+          <small>L’écran partagé apparaîtra ici.</small>
           <video id="remoteVideo" autoplay playsinline></video>
-          <p style="margin-top: 8px; text-align: right;">
-            <button id="fullscreenBtn" class="secondary-btn">
-              Plein écran
-            </button>
+          <p class="video-actions">
+            <button id="fullscreenBtn" class="secondary-btn">Plein écran</button>
           </p>
         </div>
 
@@ -45,10 +39,8 @@
           </p>
           <p id="linkInfo"></p>
 
-          <p style="margin-top: 10px;">
-            <button id="shareBtn" class="primary-btn">
-              Partager mon écran
-            </button>
+          <p class="controls">
+            <button id="shareBtn" class="primary-btn">Partager mon écran</button>
             <button id="hangupButton" class="secondary-btn" disabled>
               Arrêter la connexion
             </button>
