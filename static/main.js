@@ -39,12 +39,15 @@ if (!isSender && shareBtn) {
 if (fullscreenBtn && remoteVideo) {
   fullscreenBtn.addEventListener('click', () => {
     if (!document.fullscreenElement) {
-      remoteVideo.requestFullscreen().catch(err => console.warn('Fullscreen failed', err));
+      // Demander le plein écran sur la vidéo
+      remoteVideo.requestFullscreen?.()
+        .catch(err => console.warn('Fullscreen failed', err));
     } else {
-      document.exitFullscreen().catch(() => {});
+      document.exitFullscreen?.().catch(() => {});
     }
   });
 }
+
 
 // === Placeholder ===
 function ensurePlaceholderTrack() {
@@ -239,13 +242,23 @@ function createPeerConnection(id) {
   });
 
   pc.addEventListener('track', (e) => {
-    if (!remoteVideo) return;
-    const remoteStream = e.streams[0];
-    remoteVideo.muted = true;
-    remoteVideo.srcObject = remoteStream;
-    remoteVideo.play().catch(err => console.warn('remoteVideo.play() failed', err));
-    if (connectionState) connectionState.style.display = 'block';
-  });
+  if (!remoteVideo) return;
+  const remoteStream = e.streams[0];
+  remoteVideo.muted = true;
+  remoteVideo.srcObject = remoteStream;
+  remoteVideo.play().catch(err => console.warn('remoteVideo.play() failed', err));
+  if (connectionState) {
+    connectionState.style.display = 'block';
+  }
+
+  // Passage automatique en plein écran à la première frame
+  if (!document.fullscreenElement && remoteVideo.requestFullscreen) {
+    remoteVideo.requestFullscreen().catch(err => {
+      console.warn('Auto fullscreen refused by browser', err);
+    });
+  }
+});
+
 
   pc.addEventListener('connectionstatechange', () => {
     console.log(id, 'connectionstatechange', pc.connectionState);

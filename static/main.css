@@ -43,12 +43,12 @@ h2 {
 
 .main-layout {
   display: flex;
-  gap: 24px;
+  justify-content: center;
   margin-top: 16px;
 }
 
 .col {
-  flex: 1;
+  flex: 0 1 800px; 
   min-width: 0;
 }
 
@@ -69,7 +69,7 @@ h2 {
 
 video {
   width: 100%;
-  height: 260px;
+  height: 360px;
   background: #020617;
   border-radius: 8px;
   object-fit: contain;
@@ -171,4 +171,17 @@ button:disabled {
 /* On cache la prévisualisation locale, sans casser le JS */
 .video-card-local {
   display: none;
+}
+.col:has(.video-card-local) {
+  flex: 0 0 auto;
+  width: 0;
+  padding: 0;
+  margin: 0;
+}
+video:-webkit-full-screen,
+video:fullscreen {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
 }
